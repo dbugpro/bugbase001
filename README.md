@@ -1,65 +1,70 @@
-# Sequence Heartbeat
+# Sequence Heartbeat 💓
 
-A fun and addictive sequence-matching rhythm game. Test your reflexes by following the pattern D-B-A-C. Press the correct keys to score points, but be careful! One wrong move and you lose a heart.
+A rhythm-based memory game built with React, TypeScript, and Tailwind CSS.
 
-## Getting Started
+Test your reflexes by following the pattern **D - B - A - C**. Match the sequence correctly to score points, but be careful—one wrong move and you lose a life.
+
+## 🎮 How to Play
+
+1.  **Start the Game**: Click the "Start Game" button.
+2.  **Follow the Pattern**: Press the keys **D**, **B**, **A**, and **C** in order on your keyboard or tap the on-screen buttons.
+3.  **Score Points**: Completing a sequence earns you points.
+4.  **Survive**: You have 4 lives (hearts). A wrong key press removes a heart.
+5.  **Unlock Secrets**: Reach a score of **100** to unlock the hidden "New Bugs" developer zone.
+
+## ✨ Features
+
+-   **Interactive Gameplay**: Responsive UI with visual and audio feedback.
+-   **Sound Manager**: Custom synthesized audio effects using the Web Audio API.
+-   **Secret Zones**: Hidden content and "bugs" to discover for high achievers.
+-   **BugBase000**: An advanced terminal simulation hidden deep within the game.
+
+## 🛠️ Tech Stack
+
+-   **Frontend**: React
+-   **Language**: TypeScript
+-   **Styling**: Tailwind CSS
+-   **Build Tool**: Vite
+
+## 🚀 Getting Started
 
 ### Prerequisites
 
-Before you begin, ensure you have the following installed on your machine:
-- [Node.js](https://nodejs.org/) (version 16 or higher)
-- [Git](https://git-scm.com/)
+-   Node.js (v16+)
+-   npm or yarn
 
-### Cloning the Repository
+### Installation
 
-1. Open your terminal or command prompt.
-2. Clone the repository using the command below (replace `<your-repo-url>` with your actual repository URL):
-   ```bash
-   git clone <your-repo-url>
-   ```
-3. Navigate into the project directory:
-   ```bash
-   cd sequence-heartbeat
-   ```
+1.  Clone the repository:
+    ```bash
+    git clone https://github.com/yourusername/sequence-heartbeat.git
+    cd sequence-heartbeat
+    ```
 
-### Running Locally
+2.  Install dependencies:
+    ```bash
+    npm install
+    ```
 
-1. Install the project dependencies:
-   ```bash
-   npm install
-   ```
-   *(You can also use `yarn` or `pnpm` if you prefer).*
+3.  Start the development server:
+    ```bash
+    npm run dev
+    ```
 
-2. Start the local development server:
-   ```bash
-   npm run dev
-   ```
+4.  Open [http://localhost:5173](http://localhost:5173) in your browser.
 
-3. Open your browser and navigate to the local URL shown in your terminal (usually `http://localhost:5173`).
+## 🐛 Secrets
+
+There are rumors of a "Bug Base" hidden within the application. Only the most dedicated players who explore the "New Bugs" collection might stumble upon the **Agent Orchestration Layer**.
 
 ## Deployment on Vercel
 
-Vercel is the recommended platform for deploying Vite React applications. Follow these steps to deploy your game for free:
+Vercel is the recommended platform for deploying Vite React applications.
 
-1. **Push to GitHub**
-   - Ensure your code is committed and pushed to a repository on your GitHub account.
+1.  Push your code to a GitHub repository.
+2.  Import the project into Vercel.
+3.  Vercel will detect Vite and deploy automatically.
 
-2. **Log in to Vercel**
-   - Visit [vercel.com](https://vercel.com) and sign up or log in using your GitHub account.
+## License
 
-3. **Import Project**
-   - Click the **"Add New..."** button and select **"Project"**.
-   - Find your `sequence-heartbeat` repository in the list and click **"Import"**.
-
-4. **Configure Settings**
-   - Vercel will automatically detect the framework as **Vite**.
-   - **Root Directory**: `./` (default)
-   - **Build Command**: `vite build` (default)
-   - **Output Directory**: `dist` (default)
-   - You do not need to add any Environment Variables for the basic version of this app.
-
-5. **Deploy**
-   - Click the **"Deploy"** button.
-   - Vercel will build your application. Once complete, you will see a preview image and a live URL (e.g., `https://your-project.vercel.app`).
-
-Your game is now live and ready to be shared!
+MIT
