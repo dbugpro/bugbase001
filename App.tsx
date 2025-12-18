@@ -14,6 +14,7 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'chat' | 'workbench'>('chat');
   const [showToolSet, setShowToolSet] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Auto-scroll chat
   useEffect(() => {
@@ -56,11 +57,23 @@ const App: React.FC = () => {
     reader.readAsDataURL(uploadedFile);
   };
 
+  const handleStop = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsProcessing(false);
+    addMessage('SYSTEM', 'ORCHESTRATION TERMINATED: User initiated manual override.');
+  };
+
   const executeDbug = async (prompt: string) => {
     if (isProcessing) return;
     setIsProcessing(true);
     addMessage('USER', prompt);
     setInputValue('');
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
@@ -103,14 +116,22 @@ const App: React.FC = () => {
         });
       }
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
-        contents: { parts },
-        config: {
-          systemInstruction: SYSTEM_PROMPT,
-          tools: [{ functionDeclarations: [analyzeTool, formatTool] }]
-        }
-      });
+      // Race the API call against a rejection if the controller is aborted
+      const response = await Promise.race([
+        ai.models.generateContent({
+          model: 'gemini-3-pro-preview',
+          contents: { parts },
+          config: {
+            systemInstruction: SYSTEM_PROMPT,
+            tools: [{ functionDeclarations: [analyzeTool, formatTool] }]
+          }
+        }),
+        new Promise<never>((_, reject) => {
+          controller.signal.addEventListener('abort', () => reject(new Error('AbortError')));
+        })
+      ]);
+
+      if (controller.signal.aborted) return;
 
       const calls = response.functionCalls;
       if (calls && calls.length > 0) {
@@ -137,11 +158,18 @@ const App: React.FC = () => {
       } else {
         addMessage('AGENT', response.text || "Command processed with no structural changes.");
       }
-    } catch (error) {
+    } catch (error: any) {
+      if (error.message === 'AbortError') {
+        // Silently catch as handleStop updates the UI
+        return;
+      }
       console.error(error);
       addMessage('SYSTEM', 'ERROR: Orchestration layer failed to respond. Check console.');
     } finally {
-      setIsProcessing(false);
+      if (!controller.signal.aborted) {
+        setIsProcessing(false);
+        abortControllerRef.current = null;
+      }
     }
   };
 
@@ -219,13 +247,24 @@ const App: React.FC = () => {
             placeholder="Command dbug001..."
             className="flex-1 bg-transparent border-none outline-none text-cyan-100 placeholder-slate-700 text-sm py-2"
           />
-          <button 
-            type="submit"
-            disabled={isProcessing || !inputValue.trim()}
-            className="ml-2 px-6 py-2 bg-cyan-600 text-black font-bold text-xs rounded hover:bg-cyan-500 disabled:opacity-30 transition-all active:scale-95"
-          >
-            EXEC
-          </button>
+          {isProcessing ? (
+            <button 
+              type="button"
+              onClick={handleStop}
+              className="ml-2 px-6 py-2 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded transition-all active:scale-95 flex items-center space-x-2"
+            >
+              <span className="w-2 h-2 bg-white rounded-sm animate-pulse"></span>
+              <span>STOP</span>
+            </button>
+          ) : (
+            <button 
+              type="submit"
+              disabled={isProcessing || !inputValue.trim()}
+              className="ml-2 px-6 py-2 bg-cyan-600 text-black font-bold text-xs rounded hover:bg-cyan-500 disabled:opacity-30 transition-all active:scale-95"
+            >
+              EXEC
+            </button>
+          )}
         </form>
       </div>
 
@@ -311,7 +350,6 @@ const App: React.FC = () => {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-thin scrollbar-thumb-cyan-900">
-              {/* Tool 1 */}
               <div className="space-y-3">
                 <div className="flex items-center space-x-3">
                   <div className="w-2 h-2 bg-green-500 rounded-full shadow-[0_0_5px_rgba(34,197,94,0.5)]"></div>
@@ -336,8 +374,6 @@ const App: React.FC = () => {
                   </div>
                 </div>
               </div>
-
-              {/* Tool 2 */}
               <div className="space-y-3">
                 <div className="flex items-center space-x-3">
                   <div className="w-2 h-2 bg-green-500 rounded-full shadow-[0_0_5px_rgba(34,197,94,0.5)]"></div>
@@ -362,8 +398,6 @@ const App: React.FC = () => {
                   </div>
                 </div>
               </div>
-
-              {/* Mock System Telemetry */}
               <div className="pt-4 border-t border-slate-800">
                 <div className="text-[9px] text-slate-600 uppercase tracking-[0.2em] mb-4 font-bold">System Telemetry</div>
                 <div className="grid grid-cols-3 gap-4 text-center">
