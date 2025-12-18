@@ -17,15 +17,9 @@ const NewBugD: React.FC<NewBugProps> = ({ onBack, onOpenBugBase }) => {
         </p>
         <button 
             onClick={onOpenBugBase} 
-            className="px-8 py-3 bg-violet-600 hover:bg-violet-500 text-white font-bold rounded-full transition-all duration-300 hover:scale-105 shadow-lg shadow-violet-600/50 mb-6"
+            className="px-8 py-3 bg-violet-600 hover:bg-violet-500 text-white font-bold rounded-full transition-all duration-300 hover:scale-105 shadow-lg shadow-violet-600/50"
         >
             Run the Code
-        </button>
-        <button 
-            onClick={onBack} 
-            className="text-slate-500 hover:text-slate-300 text-sm uppercase tracking-widest transition-colors duration-300"
-        >
-            Back to Collection
         </button>
     </div>
   )
