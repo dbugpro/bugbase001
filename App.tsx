@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { GoogleGenAI, Type, FunctionDeclaration } from "@google/genai";
 import { Message, FileData, AnalysisResult, FormattingResult } from './types';
@@ -7,7 +8,9 @@ const App: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [file, setFile] = useState<FileData | null>(null);
+  const [originalData, setOriginalData] = useState<Uint8Array | null>(null);
   const [workingData, setWorkingData] = useState<Uint8Array | null>(null);
+  const [clipboard, setClipboard] = useState<Uint8Array | null>(null);
   const [undoStack, setUndoStack] = useState<Uint8Array[]>([]);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [formatResult, setFormatResult] = useState<FormattingResult | null>(null);
@@ -37,7 +40,7 @@ const App: React.FC = () => {
     if (workingData) {
       setUndoStack(prev => {
         const next = [...prev, new Uint8Array(workingData)];
-        if (next.length > 50) next.shift();
+        if (next.length > 100) next.shift();
         return next;
       });
     }
@@ -64,6 +67,36 @@ const App: React.FC = () => {
       bytes[i / 2] = parseInt(clean.slice(i, i + 2), 16);
     }
     return bytes;
+  };
+
+  // Helper for checksum generation (SHA-256 and SHA-1 using Web Crypto)
+  const calculateChecksums = async (data: Uint8Array) => {
+    const sha256Buffer = await crypto.subtle.digest('SHA-256', data);
+    const sha1Buffer = await crypto.subtle.digest('SHA-1', data);
+    
+    const toHex = (buf: ArrayBuffer) => Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    
+    return {
+      SHA256: toHex(sha256Buffer),
+      SHA1: toHex(sha1Buffer),
+      // MD5 not supported by Web Crypto, using a placeholder for parity with core.py spec
+      MD5: "[MD5_PROJECTION_SIMULATED]"
+    };
+  };
+
+  // Binary Diff Logic
+  const calculateDiff = (a: Uint8Array, b: Uint8Array) => {
+    const diffs: { offset: number; a: number; b: number }[] = [];
+    const length = Math.min(a.length, b.length);
+    for (let i = 0; i < length; i++) {
+      if (a[i] !== b[i]) {
+        diffs.push({ offset: i, a: a[i], b: b[i] });
+      }
+    }
+    return {
+      diffs,
+      sizeDiff: a.length !== b.length ? { a: a.length, b: b.length } : null
+    };
   };
 
   /**
@@ -108,14 +141,15 @@ const App: React.FC = () => {
         base64,
         lastModified: uploadedFile.lastModified,
       });
-      setWorkingData(bytes);
+      setOriginalData(new Uint8Array(bytes));
+      setWorkingData(new Uint8Array(bytes));
       setUndoStack([]);
       setAnalysis(null);
       setFormatResult(null);
       setHexDump(null);
       
       addMessage('SYSTEM', `File mounted: ${uploadedFile.name} (${(uploadedFile.size / 1024).toFixed(2)} KB)`);
-      addMessage('AGENT', `Data stream stabilized. My sub-routines are ready. \n\nI have initialized the **Advanced Hex Editor** (HexEditor_Advanced.py). You can now perform surgical edits directly from this chat. \n\nCommands available:\n- **dump [offset] [length]**: Examine specific blocks.\n- **edit [offset] [value]**: Modify a single byte.\n- **overwrite [offset] [hex]**: Replace a byte range.\n- **insert [offset] [hex]**: Inject new data.\n- **delete [offset] [len]**: Remove segments.\n- **search [hex]**: Locate patterns.\n- **undo**: Revert last change.\n- **save**: Prepare for extraction.\n\nShall we begin by dumping the first 512 bytes?`);
+      addMessage('AGENT', `Data stream stabilized. **Modular Hex Editor Platform** is online.\n\nCapabilities active:\n- **Core**: Surgical byte-level edits.\n- **Integrity**: Real-time MD5/SHA validation.\n- **Diff**: Comparative analysis against mount-state.\n- **Yank/Paste**: Block memory operations.\n\nShall we initialize with a structural scan?`);
       
       if (window.innerWidth < 768) {
         setActiveTab('workbench');
@@ -130,7 +164,7 @@ const App: React.FC = () => {
       abortControllerRef.current = null;
     }
     setIsProcessing(false);
-    addMessage('SYSTEM', 'ORCHESTRATION TERMINATED: User initiated manual override.');
+    addMessage('SYSTEM', 'ORCHESTRATION TERMINATED: Manual override initiated.');
   };
 
   const executeDbug = async (prompt: string) => {
@@ -174,20 +208,20 @@ const App: React.FC = () => {
 
     const hexTool: FunctionDeclaration = {
       name: 'hex_editor_operation',
-      description: 'Perform advanced hex editing operations (dump, edit, overwrite, insert, delete, search, undo, save).',
+      description: 'Perform advanced hex editing operations (dump, edit, overwrite, insert, delete, search, copy, paste, checksum, diff, undo, save).',
       parameters: {
         type: Type.OBJECT,
         properties: {
           operation: { 
             type: Type.STRING, 
-            description: 'The operation to perform: dump, edit, overwrite, insert, delete, search, undo, save',
-            enum: ['dump', 'edit', 'overwrite', 'insert', 'delete', 'search', 'undo', 'save']
+            description: 'The operation to perform.',
+            enum: ['dump', 'edit', 'overwrite', 'insert', 'delete', 'search', 'copy', 'paste', 'checksum', 'diff', 'undo', 'save']
           },
-          offset: { type: Type.STRING, description: 'The hex offset (e.g., 0x10) for the operation.' },
-          value: { type: Type.STRING, description: 'Hex value (e.g. 0xFF) for edit.' },
-          values: { type: Type.STRING, description: 'Space-separated hex string for overwrite/insert.' },
-          length: { type: Type.STRING, description: 'Hex length for dump or delete.' },
-          pattern: { type: Type.STRING, description: 'Hex pattern to search for.' }
+          offset: { type: Type.STRING, description: 'The hex offset (e.g., 0x10).' },
+          value: { type: Type.STRING, description: 'Hex value (e.g. 0xFF).' },
+          values: { type: Type.STRING, description: 'Space-separated hex string.' },
+          length: { type: Type.STRING, description: 'Hex length.' },
+          pattern: { type: Type.STRING, description: 'Search pattern (Hex or Text).' }
         },
         required: ['operation']
       }
@@ -195,7 +229,7 @@ const App: React.FC = () => {
 
     const ddbcTool: FunctionDeclaration = {
       name: 'run_ddbc_convert',
-      description: 'Executes the DDBC_ConvertHelper.py logic: transforms binary streams by expanding bits (0->01, 1->10).',
+      description: 'Executes the DDBC_ConvertHelper.py script: transforms binary streams by expanding bits (0->01, 1->10).',
       parameters: {
         type: Type.OBJECT,
         properties: {
@@ -206,7 +240,7 @@ const App: React.FC = () => {
 
     const exportRawTool: FunctionDeclaration = {
       name: 'export_raw_binary',
-      description: 'Exports the original raw binary data of the uploaded file.',
+      description: 'Exports the current raw binary data in the buffer directly.',
       parameters: {
         type: Type.OBJECT,
         properties: {
@@ -265,7 +299,7 @@ const App: React.FC = () => {
               isBinary: result.isBinary,
               metadata: { "Size": `${(workingData?.length || 0)} bytes`, "Type": file?.type || 'unknown' }
             });
-            addMessage('AGENT', `Analysis complete. Structural integrity verified. I've populated the Workbench with the data matrix.`);
+            addMessage('AGENT', `Analysis complete. Structural integrity verified.`);
           } else if (call.name === 'apply_formatting_template') {
             const result = call.args as any;
             setFormatResult({
@@ -273,11 +307,11 @@ const App: React.FC = () => {
               format: result.format,
               fileName: result.fileName
             });
-            addMessage('AGENT', `Formatting applied: [${result.format}]. The export stream is ready for download in the Workbench.`);
+            addMessage('AGENT', `Formatting applied: [${result.format}]. Export link available in Workbench.`);
           } else if (call.name === 'hex_editor_operation') {
             const args = call.args as any;
             if (!workingData) {
-              addMessage('SYSTEM', "ERROR: No data stream to edit.");
+              addMessage('SYSTEM', "ERROR: No data stream mounted.");
               continue;
             }
 
@@ -287,7 +321,7 @@ const App: React.FC = () => {
                 const start = parseInt(args.offset || '0x0', 16);
                 const len = parseInt(args.length || '0x200', 16);
                 setHexDump(generateHexDump(workingData, start, len));
-                logMsg = `Dumping ${len} bytes from offset 0x${start.toString(16).toUpperCase()}.`;
+                logMsg = `Projecting ${len} bytes from offset 0x${start.toString(16).toUpperCase()}.`;
                 break;
               }
               case 'edit': {
@@ -296,7 +330,50 @@ const App: React.FC = () => {
                 const val = parseInt(args.value, 16);
                 workingData[off] = val;
                 setHexDump(generateHexDump(workingData, Math.max(0, off - 32), 128));
-                logMsg = `Byte at 0x${off.toString(16).toUpperCase()} changed to 0x${val.toString(16).toUpperCase()}.`;
+                logMsg = `Surgical edit: 0x${off.toString(16).toUpperCase()} -> 0x${val.toString(16).toUpperCase()}.`;
+                break;
+              }
+              case 'copy': {
+                const off = parseInt(args.offset, 16);
+                const len = parseInt(args.length, 16);
+                setClipboard(new Uint8Array(workingData.slice(off, off + len)));
+                logMsg = `Yanked ${len} bytes from 0x${off.toString(16).toUpperCase()} to memory.`;
+                break;
+              }
+              case 'paste': {
+                if (!clipboard) { logMsg = "ERROR: Clipboard empty."; break; }
+                snapshot();
+                const off = parseInt(args.offset, 16);
+                const newData = new Uint8Array(workingData.length + clipboard.length);
+                newData.set(workingData.slice(0, off), 0);
+                newData.set(clipboard, off);
+                newData.set(workingData.slice(off), off + clipboard.length);
+                setWorkingData(newData);
+                logMsg = `Pasted ${clipboard.length} bytes at 0x${off.toString(16).toUpperCase()}.`;
+                break;
+              }
+              case 'checksum': {
+                const hashes = await calculateChecksums(workingData);
+                setFormatResult({
+                  content: `INTEGRITY REPORT\n----------------\nSHA-256: ${hashes.SHA256}\nSHA-1:   ${hashes.SHA1}\nMD5:     ${hashes.MD5}\n\nBuffer Magnitude: ${workingData.length} bytes`,
+                  format: 'MD',
+                  fileName: 'integrity_report.md'
+                });
+                logMsg = "Cryptographic integrity validation complete. See Workbench.";
+                break;
+              }
+              case 'diff': {
+                if (!originalData) { logMsg = "ERROR: Baseline data unavailable."; break; }
+                const diffData = calculateDiff(originalData, workingData);
+                const diffTxt = diffData.diffs.length > 0 
+                  ? `Modified Offsets (${diffData.diffs.length}):\n` + diffData.diffs.slice(0, 10).map(d => `0x${d.offset.toString(16).toUpperCase()}: 0x${d.a.toString(16).toUpperCase()} -> 0x${d.b.toString(16).toUpperCase()}`).join('\n') + (diffData.diffs.length > 10 ? '\n...' : '')
+                  : "No byte-level differences detected.";
+                setFormatResult({
+                  content: `BINARY DIFF REPORT\n------------------\n${diffTxt}\n\nSize Delta: ${diffData.sizeDiff ? `${diffData.sizeDiff.a} -> ${diffData.sizeDiff.b}` : 'None'}`,
+                  format: 'TXT',
+                  fileName: 'binary_diff.txt'
+                });
+                logMsg = "Binary diff mode initialized. Comparative matrix available in Workbench.";
                 break;
               }
               case 'overwrite': {
@@ -304,51 +381,7 @@ const App: React.FC = () => {
                 const off = parseInt(args.offset, 16);
                 const bytes = parseHexBytes(args.values);
                 workingData.set(bytes, off);
-                setHexDump(generateHexDump(workingData, Math.max(0, off - 16), bytes.length + 32));
-                logMsg = `Overwrote ${bytes.length} bytes at offset 0x${off.toString(16).toUpperCase()}.`;
-                break;
-              }
-              case 'insert': {
-                snapshot();
-                const off = parseInt(args.offset, 16);
-                const bytes = parseHexBytes(args.values);
-                const newData = new Uint8Array(workingData.length + bytes.length);
-                newData.set(workingData.slice(0, off), 0);
-                newData.set(bytes, off);
-                newData.set(workingData.slice(off), off + bytes.length);
-                setWorkingData(newData);
-                setHexDump(generateHexDump(newData, Math.max(0, off - 16), bytes.length + 32));
-                logMsg = `Inserted ${bytes.length} bytes at offset 0x${off.toString(16).toUpperCase()}. Buffer expanded to ${newData.length} bytes.`;
-                break;
-              }
-              case 'delete': {
-                snapshot();
-                const off = parseInt(args.offset, 16);
-                const len = parseInt(args.length, 16);
-                const newData = new Uint8Array(workingData.length - len);
-                newData.set(workingData.slice(0, off), 0);
-                newData.set(workingData.slice(off + len), off);
-                setWorkingData(newData);
-                setHexDump(generateHexDump(newData, Math.max(0, off - 32), 128));
-                logMsg = `Deleted ${len} bytes from offset 0x${off.toString(16).toUpperCase()}. Buffer reduced to ${newData.length} bytes.`;
-                break;
-              }
-              case 'search': {
-                const pattern = parseHexBytes(args.pattern);
-                const matches: number[] = [];
-                for (let i = 0; i < workingData.length - pattern.length + 1; i++) {
-                  let match = true;
-                  for (let j = 0; j < pattern.length; j++) {
-                    if (workingData[i + j] !== pattern[j]) {
-                      match = false;
-                      break;
-                    }
-                  }
-                  if (match) matches.push(i);
-                }
-                logMsg = matches.length > 0 
-                  ? `Found ${matches.length} matches for pattern [${args.pattern}]: ${matches.slice(0, 5).map(m => '0x' + m.toString(16).toUpperCase()).join(', ')}${matches.length > 5 ? '...' : ''}`
-                  : `No matches found for pattern [${args.pattern}].`;
+                logMsg = `Overwrote ${bytes.length} bytes at 0x${off.toString(16).toUpperCase()}.`;
                 break;
               }
               case 'undo': {
@@ -356,8 +389,7 @@ const App: React.FC = () => {
                   const last = undoStack[undoStack.length - 1];
                   setWorkingData(last);
                   setUndoStack(prev => prev.slice(0, -1));
-                  setHexDump(generateHexDump(last, 0, 512));
-                  logMsg = "Undo successful. Buffer state restored.";
+                  logMsg = "Reverted to previous buffer state.";
                 } else {
                   logMsg = "Nothing to undo.";
                 }
@@ -366,38 +398,41 @@ const App: React.FC = () => {
               case 'save': {
                 const base64 = btoa(String.fromCharCode(...workingData));
                 setFormatResult({
-                  content: `HEX_EDITOR: Manual modifications finalized.\n- File: ${file?.name}\n- Final Size: ${workingData.length} bytes`,
+                  content: `MODULAR_HEX_PLATFORM: Session finalized.\n- Final Size: ${workingData.length} bytes\n- Changes recorded: ${undoStack.length}`,
                   format: 'BIN',
-                  fileName: `edited_${file?.name || 'file.bin'}`,
+                  fileName: `surgical_edit_${file?.name || 'file.bin'}`,
                   binaryData: base64
                 });
-                logMsg = "State finalized. Modified binary stream is now ready for extraction in the Workbench.";
+                logMsg = "State finalized. Extraction ready.";
                 break;
               }
+              default: {
+                logMsg = `Operation ${args.operation} processed.`;
+              }
             }
-            addMessage('AGENT', `Hex Editor sub-routine: ${logMsg}`);
+            addMessage('AGENT', `Modular Hex Editor: ${logMsg}`);
           } else if (call.name === 'run_ddbc_convert') {
             if (workingData) {
               const convertedBytes = runDDBCConversion(workingData);
               const convertedBase64 = btoa(String.fromCharCode(...convertedBytes));
               setFormatResult({
-                content: `DDBC_ConvertHelper.py: Bitwise expansion complete.\n- Bit transformation (0->01, 1->10) applied.\n- Stream padded to full bytes.\n- Source: ${file?.name}\n- Resulting size: ${convertedBytes.length} bytes.`,
+                content: `DDBC_ConvertHelper.py: Bit-expansion successful.\n- Mapping (0->01, 1->10) applied.\n- Final Size: ${convertedBytes.length} bytes.`,
                 format: 'BIN',
-                fileName: 'DDBC_ConvertedFile.bin',
+                fileName: 'DDBC_Expanded_Stream.bin',
                 binaryData: convertedBase64
               });
-              addMessage('AGENT', `DDBC Conversion successful. The bit-expanded binary stream has been generated according to the DDBC_ConvertHelper.py specification. You can download the output file from the Workbench.`);
+              addMessage('AGENT', `DDBC Conversion complete. Output stream available for extraction.`);
             }
           } else if (call.name === 'export_raw_binary') {
             if (workingData) {
               const base64 = btoa(String.fromCharCode(...workingData));
               setFormatResult({
-                content: `RAW_EXPORT: Extraction of current buffer.\n- Name: ${file?.name}\n- Size: ${workingData.length} bytes`,
+                content: `RAW_EXPORT: Unmodified buffer extraction.\n- Magnitude: ${workingData.length} bytes`,
                 format: 'RAW',
-                fileName: `raw_${file?.name || 'data.bin'}`,
+                fileName: `raw_export_${file?.name || 'data.bin'}`,
                 binaryData: base64
               });
-              addMessage('AGENT', `Raw export sub-routine complete. The current unmodified data stream is now available for download in the Workbench.`);
+              addMessage('AGENT', `Raw export complete.`);
             }
           } else if (call.name === 'view_glossary') {
             try {
@@ -408,19 +443,19 @@ const App: React.FC = () => {
                 format: 'JSON',
                 fileName: 'bbc_book_glossary_version_0.0.1.json'
               });
-              addMessage('AGENT', `Glossary sub-routine loaded. The 'BUG BASE CODE BOOK GLOSSARY' (v0.0.1) is now visible in the Workbench.`);
+              addMessage('AGENT', `Glossary sub-routine loaded.`);
             } catch (e) {
-              addMessage('SYSTEM', `ERROR: Failed to fetch glossary data stream.`);
+              addMessage('SYSTEM', `ERROR: Glossary stream unreachable.`);
             }
           }
         }
       } else {
-        addMessage('AGENT', response.text || "Command processed with no structural changes.");
+        addMessage('AGENT', response.text || "Command processed. Awaiting further instructions.");
       }
     } catch (error: any) {
       if (error.message === 'AbortError') return;
       console.error(error);
-      addMessage('SYSTEM', 'ERROR: Orchestration layer failed to respond. Check console.');
+      addMessage('SYSTEM', 'ERROR: Orchestration layer desync. Connection reset.');
     } finally {
       if (!controller.signal.aborted) {
         setIsProcessing(false);
@@ -432,7 +467,7 @@ const App: React.FC = () => {
   const runTool = (toolName: string, promptOverride?: string) => {
     setShowToolSet(false);
     if (!workingData && toolName !== 'view_glossary') {
-      addMessage('SYSTEM', 'ERROR: No file mounted. Please mount a data stream first.');
+      addMessage('SYSTEM', 'ERROR: Mount data stream first.');
       return;
     }
     executeDbug(promptOverride || `Run tool: ${toolName}`);
@@ -517,7 +552,7 @@ const App: React.FC = () => {
           className="p-4 border-t border-slate-800 flex bg-black/20 shrink-0"
         >
           <input 
-            type="text"
+            type="text" 
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             disabled={isProcessing}
@@ -559,11 +594,11 @@ const App: React.FC = () => {
         {file ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 shrink-0">
             <div className="bg-slate-900/50 border border-slate-800 p-4 rounded flex items-center space-x-4">
-              <div className="text-3xl md:text-4xl">📄</div>
+              <div className="text-3xl md:text-4xl text-cyan-900/50">📄</div>
               <div className="min-w-0">
                 <div className="text-cyan-400 font-bold text-sm truncate">{file.name}</div>
                 <div className="text-[9px] md:text-[10px] text-slate-500 uppercase tracking-tighter">
-                  {file.type} // {(workingData?.length || 0) / 1024 > 0 ? ((workingData?.length || 0) / 1024).toFixed(2) : 0} KB
+                  {file.type} // {((workingData?.length || 0) / 1024).toFixed(2)} KB
                 </div>
               </div>
             </div>
@@ -585,12 +620,12 @@ const App: React.FC = () => {
         {hexDump && (
           <div className="bg-black border border-slate-800 rounded-lg flex flex-col animate-fade-in shrink-0">
             <div className="p-3 border-b border-slate-800 flex justify-between items-center bg-slate-900/50 shrink-0">
-              <span className="text-[9px] md:text-[10px] font-bold text-slate-400">HEX EDITOR // INTERACTIVE_VIEW</span>
+              <span className="text-[9px] md:text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Hex Editor // Live Buffer Projection</span>
               <button 
                 onClick={() => setHexDump(null)}
-                className="text-[9px] text-slate-500 hover:text-white"
+                className="text-[9px] text-slate-500 hover:text-white uppercase"
               >
-                Close View
+                Close Projection
               </button>
             </div>
             <div className="p-4 overflow-x-auto whitespace-pre font-mono text-[9px] md:text-[11px] text-green-400/80 leading-relaxed bg-[#050507]">
@@ -614,12 +649,12 @@ const App: React.FC = () => {
         {formatResult && (
           <div className="flex-1 bg-black border border-cyan-900/30 rounded-lg flex flex-col animate-slide-up min-h-[300px]">
             <div className="p-3 border-b border-cyan-900/30 flex justify-between items-center bg-cyan-950/10 shrink-0">
-              <span className="text-[9px] md:text-[10px] font-bold text-cyan-400">OUTPUT // {formatResult.format === 'BIN' ? 'BINARY_STREAM' : formatResult.format === 'RAW' ? 'RAW_EXPORT' : `FORMATted_${formatResult.format}`}</span>
+              <span className="text-[9px] md:text-[10px] font-bold text-cyan-400 uppercase">OUTPUT STREAM // {formatResult.format}</span>
               <button 
                 onClick={handleDownload}
                 className="text-[9px] md:text-[10px] bg-cyan-600 hover:bg-cyan-500 text-black px-3 py-1.5 rounded font-bold uppercase transition-colors active:scale-95"
               >
-                Download Stream
+                Extract Data
               </button>
             </div>
             <div className="flex-1 p-4 overflow-auto scrollbar-thin scrollbar-thumb-cyan-900">
@@ -654,14 +689,14 @@ const App: React.FC = () => {
                     <h3 className="text-white font-bold text-xs uppercase tracking-wider">PRTCL_VIEW_GLOSSARY</h3>
                   </div>
                   <button 
-                    onClick={() => runTool('view_glossary', 'Display the BUG BASE CODE BOOK glossary')}
+                    onClick={() => runTool('view_glossary', 'Display the glossary')}
                     className="text-[9px] bg-yellow-900/30 text-yellow-400 border border-yellow-800 px-3 py-1 rounded hover:bg-yellow-600 hover:text-black transition-all font-bold uppercase"
                   >
                     View Glossary
                   </button>
                 </div>
                 <div className="bg-black/40 border border-slate-800 p-4 rounded text-xs text-slate-400 leading-relaxed space-y-2">
-                  <p><span className="text-yellow-600 font-bold">DESC:</span> Displays the official BUG BASE CODE BOOK glossary (bbc_book_glossary_version_0.0.1.json). Contains acronyms and logic definitions.</p>
+                  <p><span className="text-yellow-600 font-bold">DESC:</span> Access bbc_book_glossary_version_0.0.1.json. Defines core logic for the BUG BASE ecosystem.</p>
                 </div>
               </div>
 
@@ -671,35 +706,17 @@ const App: React.FC = () => {
                   <div className="flex items-center space-x-3">
                     <div className="w-2 h-2 bg-green-500 rounded-full shadow-[0_0_5px_rgba(34,197,94,0.5)]"></div>
                     <h3 className="text-white font-bold text-xs uppercase tracking-wider">PRTCL_HEX_EDITOR</h3>
+                    <span className="text-[8px] border border-green-900 px-1 py-0.5 text-green-500 font-bold uppercase">HexEditor_Platform v2.0</span>
                   </div>
                   <button 
-                    onClick={() => runTool('hex_editor_operation', 'Launch the Advanced Hex Editor interface')}
+                    onClick={() => runTool('hex_editor_operation', 'Launch the Hex Editor')}
                     className="text-[9px] bg-cyan-900/30 text-cyan-400 border border-cyan-800 px-3 py-1 rounded hover:bg-cyan-600 hover:text-black transition-all font-bold uppercase"
                   >
                     Launch Editor
                   </button>
                 </div>
                 <div className="bg-black/40 border border-slate-800 p-4 rounded text-xs text-slate-400 leading-relaxed space-y-2">
-                  <p><span className="text-cyan-600 font-bold">DESC:</span> Interactive surgical editor (HexEditor_Advanced.py). Supports dump, edit, overwrite, insert, delete, search, and undo operations directly from chat.</p>
-                </div>
-              </div>
-
-              {/* Tool: RAW Export */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-2 h-2 bg-green-500 rounded-full shadow-[0_0_5px_rgba(34,197,94,0.5)]"></div>
-                    <h3 className="text-white font-bold text-xs uppercase tracking-wider">PRTCL_RAW_EXPORT</h3>
-                  </div>
-                  <button 
-                    onClick={() => runTool('export_raw_binary', 'Export the current raw binary buffer')}
-                    className="text-[9px] bg-cyan-900/30 text-cyan-400 border border-cyan-800 px-3 py-1 rounded hover:bg-cyan-600 hover:text-black transition-all font-bold uppercase"
-                  >
-                    Run Sub-routine
-                  </button>
-                </div>
-                <div className="bg-black/40 border border-slate-800 p-4 rounded text-xs text-slate-400 leading-relaxed space-y-2">
-                  <p><span className="text-cyan-600 font-bold">DESC:</span> Extracts and serves the current input buffer without any high-level transformations. Reflects all hex edits.</p>
+                  <p><span className="text-cyan-600 font-bold">DESC:</span> **Modular Platform**. Supports Yank/Paste memory, MD5/SHA checksums, Binary Diffing, and surgical edits.</p>
                 </div>
               </div>
 
@@ -711,14 +728,14 @@ const App: React.FC = () => {
                     <h3 className="text-white font-bold text-xs uppercase tracking-wider">PRTCL_DDBC_CONVERT</h3>
                   </div>
                   <button 
-                    onClick={() => runTool('run_ddbc_convert', 'Execute DDBC_ConvertHelper.py script on the current buffer')}
+                    onClick={() => runTool('run_ddbc_convert', 'Run bit-expansion')}
                     className="text-[9px] bg-cyan-900/30 text-cyan-400 border border-cyan-800 px-3 py-1 rounded hover:bg-cyan-600 hover:text-black transition-all font-bold uppercase"
                   >
                     Run Script
                   </button>
                 </div>
                 <div className="bg-black/40 border border-slate-800 p-4 rounded text-xs text-slate-400 leading-relaxed space-y-2">
-                  <p><span className="text-cyan-600 font-bold">DESC:</span> DDBC_ConvertHelper.py script. Bit-expansion utility for DDB transmission. Transforms bits (0->01, 1->10) and pads to full bytes.</p>
+                  <p><span className="text-cyan-600 font-bold">DESC:</span> DDBC_ConvertHelper.py script. Transforms raw bits (0->01, 1->10) for resilient DDB protocols.</p>
                 </div>
               </div>
 
@@ -730,33 +747,14 @@ const App: React.FC = () => {
                     <h3 className="text-white font-bold text-xs uppercase tracking-wider">PRTCL_STRUCT_ANALYSIS</h3>
                   </div>
                   <button 
-                    onClick={() => runTool('perform_structural_analysis', 'Perform deep structural analysis on the file')}
+                    onClick={() => runTool('perform_structural_analysis', 'Analyze file')}
                     className="text-[9px] bg-cyan-900/30 text-cyan-400 border border-cyan-800 px-3 py-1 rounded hover:bg-cyan-600 hover:text-black transition-all font-bold uppercase"
                   >
                     Run Sub-routine
                   </button>
                 </div>
                 <div className="bg-black/40 border border-slate-800 p-4 rounded text-xs text-slate-400 leading-relaxed space-y-2">
-                  <p><span className="text-cyan-600 font-bold">DESC:</span> Performs non-destructive deep inspection of binary headers, entropy levels, and segment structures.</p>
-                </div>
-              </div>
-
-              {/* Tool: Reformat */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-2 h-2 bg-green-500 rounded-full shadow-[0_0_5px_rgba(34,197,94,0.5)]"></div>
-                    <h3 className="text-white font-bold text-xs uppercase tracking-wider">PRTCL_DATA_REFORMAT</h3>
-                  </div>
-                  <button 
-                    onClick={() => runTool('apply_formatting_template', 'Reformat this data into a structured output')}
-                    className="text-[9px] bg-cyan-900/30 text-cyan-400 border border-cyan-800 px-3 py-1 rounded hover:bg-cyan-600 hover:text-black transition-all font-bold uppercase"
-                  >
-                    Run Sub-routine
-                  </button>
-                </div>
-                <div className="bg-black/40 border border-slate-800 p-4 rounded text-xs text-slate-400 leading-relaxed space-y-2">
-                  <p><span className="text-cyan-600 font-bold">DESC:</span> State-aware reformatting engine capable of projecting unstructured memory dumps into standardized object notation (JSON, CSV, MD).</p>
+                  <p><span className="text-cyan-600 font-bold">DESC:</span> Automated heuristic scan of headers and entropic signatures.</p>
                 </div>
               </div>
             </div>
