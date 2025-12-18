@@ -12,6 +12,7 @@ const App: React.FC = () => {
   const [formatResult, setFormatResult] = useState<FormattingResult | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [activeTab, setActiveTab] = useState<'chat' | 'workbench'>('chat');
+  const [showToolSet, setShowToolSet] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll chat
@@ -48,7 +49,6 @@ const App: React.FC = () => {
       addMessage('SYSTEM', `File mounted: ${uploadedFile.name} (${(uploadedFile.size / 1024).toFixed(2)} KB)`);
       addMessage('AGENT', `I've detected a new input stream: ${uploadedFile.name}. How would you like me to process this data?`);
       
-      // Auto-switch to workbench on mobile when file is uploaded to show status
       if (window.innerWidth < 768) {
         setActiveTab('workbench');
       }
@@ -157,22 +157,20 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col md:flex-row h-screen w-full bg-[#0a0a0c] text-slate-300 font-mono overflow-hidden">
+    <div className="flex flex-col md:flex-row h-screen w-full bg-[#0a0a0c] text-slate-300 font-mono overflow-hidden relative">
       {/* Sidebar / Chat Pane */}
       <div className={`w-full md:w-1/2 flex flex-col border-r border-slate-800 bg-[#0d0d11] ${activeTab === 'chat' ? 'flex h-full' : 'hidden md:flex'}`}>
         <div className="p-4 border-b border-slate-800 flex justify-between items-start shrink-0">
           <div className="flex flex-col">
             <h1 className="text-cyan-400 font-bold tracking-widest text-lg">DBUG 001</h1>
-            <a 
-              href="https://ai.google.dev/gemini-api/docs/function-calling" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="text-[10px] text-slate-500 hover:text-cyan-400 flex items-center mt-1 transition-colors group uppercase tracking-tight"
+            <button 
+              onClick={() => setShowToolSet(true)}
+              className="text-[10px] text-slate-500 hover:text-cyan-400 flex items-center mt-1 transition-colors group uppercase tracking-tight text-left"
             >
               <span className="mr-1.5 opacity-50 font-bold">◈</span> 
               DBUG TOOL SET 
-              <span className="ml-1 opacity-0 group-hover:opacity-100 transition-opacity">↗</span>
-            </a>
+              <span className="ml-1 opacity-50 group-hover:opacity-100 transition-opacity">+</span>
+            </button>
           </div>
           <div className="flex items-center space-x-2 mt-1">
             <div className={`w-2 h-2 rounded-full ${isProcessing ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
@@ -233,7 +231,6 @@ const App: React.FC = () => {
 
       {/* Main Workbench Pane */}
       <div className={`flex-1 flex flex-col p-4 md:p-6 space-y-4 md:space-y-6 overflow-y-auto bg-[#0a0a0c] ${activeTab === 'workbench' ? 'flex h-full' : 'hidden md:flex'}`}>
-        {/* Header */}
         <div className="flex justify-between items-center shrink-0">
           <h2 className="text-slate-500 text-[10px] md:text-xs font-bold uppercase tracking-widest">Workbench // Data Matrix</h2>
           <label className="cursor-pointer group flex items-center space-x-2 text-[10px] border border-slate-800 px-3 py-2 rounded bg-slate-900/50 hover:bg-slate-800 transition-colors active:scale-95">
@@ -243,7 +240,6 @@ const App: React.FC = () => {
           </label>
         </div>
 
-        {/* File Info Card */}
         {file ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 shrink-0">
             <div className="bg-slate-900/50 border border-slate-800 p-4 rounded flex items-center space-x-4">
@@ -269,7 +265,6 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* Analysis Detail */}
         {analysis && (
           <div className="bg-[#0d0d11] border border-slate-800 p-4 md:p-5 rounded-lg space-y-3 animate-fade-in shrink-0">
              <div className="flex items-center justify-between">
@@ -282,7 +277,6 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* Formatted Output / Download */}
         {formatResult && (
           <div className="flex-1 bg-black border border-cyan-900/30 rounded-lg flex flex-col animate-slide-up min-h-[300px]">
             <div className="p-3 border-b border-cyan-900/30 flex justify-between items-center bg-cyan-950/10 shrink-0">
@@ -302,6 +296,103 @@ const App: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Tool Set Modal Overlay */}
+      {showToolSet && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-2xl bg-[#0d0d11] border border-cyan-900/50 rounded-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-4 border-b border-cyan-900/30 flex justify-between items-center bg-cyan-950/10">
+              <h2 className="text-cyan-400 font-bold text-sm tracking-widest uppercase">DBUG Sub-routine Library</h2>
+              <button 
+                onClick={() => setShowToolSet(false)}
+                className="text-slate-500 hover:text-white transition-colors p-1"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-thin scrollbar-thumb-cyan-900">
+              {/* Tool 1 */}
+              <div className="space-y-3">
+                <div className="flex items-center space-x-3">
+                  <div className="w-2 h-2 bg-green-500 rounded-full shadow-[0_0_5px_rgba(34,197,94,0.5)]"></div>
+                  <h3 className="text-white font-bold text-xs uppercase tracking-wider">PRTCL_STRUCT_ANALYSIS</h3>
+                </div>
+                <div className="bg-black/40 border border-slate-800 p-4 rounded text-xs text-slate-400 leading-relaxed space-y-2">
+                  <p><span className="text-cyan-600 font-bold">DESC:</span> Performs non-destructive deep inspection of binary headers, entropy levels, and segment structures.</p>
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <div className="bg-slate-900/50 p-2 rounded border border-slate-800/50">
+                      <div className="text-[9px] text-slate-600 uppercase mb-1">Capabilities</div>
+                      <ul className="list-disc list-inside space-y-1 text-[10px]">
+                        <li>Magic Byte Identification</li>
+                        <li>Structural Heuristics</li>
+                        <li>MIME Verification</li>
+                      </ul>
+                    </div>
+                    <div className="bg-slate-900/50 p-2 rounded border border-slate-800/50">
+                      <div className="text-[9px] text-slate-600 uppercase mb-1">Status</div>
+                      <div className="text-green-500 font-bold text-[10px]">ACTIVE // NOMINAL</div>
+                      <div className="text-[9px] opacity-50 mt-1 italic">Version 2.4.0-rev3</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tool 2 */}
+              <div className="space-y-3">
+                <div className="flex items-center space-x-3">
+                  <div className="w-2 h-2 bg-green-500 rounded-full shadow-[0_0_5px_rgba(34,197,94,0.5)]"></div>
+                  <h3 className="text-white font-bold text-xs uppercase tracking-wider">PRTCL_DATA_REFORMAT</h3>
+                </div>
+                <div className="bg-black/40 border border-slate-800 p-4 rounded text-xs text-slate-400 leading-relaxed space-y-2">
+                  <p><span className="text-cyan-600 font-bold">DESC:</span> State-aware reformatting engine capable of projecting unstructured memory dumps into standardized object notation.</p>
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <div className="bg-slate-900/50 p-2 rounded border border-slate-800/50">
+                      <div className="text-[9px] text-slate-600 uppercase mb-1">Output Streams</div>
+                      <ul className="list-disc list-inside space-y-1 text-[10px]">
+                        <li>JSON_v12 (Object)</li>
+                        <li>CSV_v4 (Tabular)</li>
+                        <li>MD_LITE (Markup)</li>
+                      </ul>
+                    </div>
+                    <div className="bg-slate-900/50 p-2 rounded border border-slate-800/50">
+                      <div className="text-[9px] text-slate-600 uppercase mb-1">Latency</div>
+                      <div className="text-cyan-400 font-bold text-[10px]">~45ms / 10kb</div>
+                      <div className="text-[9px] opacity-50 mt-1 italic">Buffer: 4096-bit</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Mock System Telemetry */}
+              <div className="pt-4 border-t border-slate-800">
+                <div className="text-[9px] text-slate-600 uppercase tracking-[0.2em] mb-4 font-bold">System Telemetry</div>
+                <div className="grid grid-cols-3 gap-4 text-center">
+                  <div>
+                    <div className="text-xs font-bold text-cyan-500">99.8%</div>
+                    <div className="text-[8px] text-slate-700 uppercase">Integrity</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-yellow-500">12ms</div>
+                    <div className="text-[8px] text-slate-700 uppercase">Jitter</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-green-500">STABLE</div>
+                    <div className="text-[8px] text-slate-700 uppercase">Kernel</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="p-4 bg-black/40 border-t border-cyan-900/20 flex justify-end">
+              <button 
+                onClick={() => setShowToolSet(false)}
+                className="px-6 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-black font-bold text-[10px] rounded uppercase transition-colors"
+              >
+                Acknowledge
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Mobile Navigation Tab Bar */}
       <div className="md:hidden flex border-t border-slate-800 bg-[#0d0d11] shrink-0">
@@ -332,8 +423,6 @@ const App: React.FC = () => {
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: #334155; }
-        
-        /* Ensure inputs don't zoom on iOS */
         @media screen and (max-width: 768px) {
           input { font-size: 16px !important; }
         }
